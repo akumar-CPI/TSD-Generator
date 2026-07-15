@@ -1,0 +1,13 @@
+{
+  "watchPath": "iflows/**/*.zip",
+  "outputDir": "docs/tech-specs",
+  "documentMetadata": {
+    "domain": "XXXX",
+    "interfaceId": "I<xxx>",
+    "level3Id": "",
+    "author": "",
+    "sapVersion": "",
+    "interfacePattern": "",
+    "companyName": ""
+  }
+}

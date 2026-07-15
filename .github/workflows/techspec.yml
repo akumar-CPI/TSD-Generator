@@ -1,0 +1,115 @@
+name: Generate iFlow Technical Specs
+
+on:
+  push:
+    paths:
+      - "iflows/**/*.zip"
+  pull_request:
+    paths:
+      - "iflows/**/*.zip"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: techspec-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restrict network egress (defense-in-depth — this pipeline makes no external API calls)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            registry.npmjs.org:443
+            nodejs.org:443
+
+      - name: Checkout (push)
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Checkout (pull_request head)
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          fetch-depth: 2
+
+      - name: Detect changed iFlow zips
+        id: changed
+        uses: tj-actions/changed-files@v45
+        with:
+          files: iflows/**/*.zip
+
+      - name: Set up Node
+        if: steps.changed.outputs.any_changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install generator dependencies
+        if: steps.changed.outputs.any_changed == 'true'
+        working-directory: tools/techspec
+        run: npm install --no-audit --no-fund
+
+      - name: Generate technical spec(s)
+        if: steps.changed.outputs.any_changed == 'true'
+        working-directory: tools/techspec
+        run: |
+          set -e
+          OUTDIR="../../docs/tech-specs"
+          mkdir -p "$OUTDIR"
+          for f in ${{ steps.changed.outputs.all_changed_files }}; do
+            echo "::group::Processing $f"
+            base="$(basename "$f" .zip)"
+            node generate.js "../../$f" "$OUTDIR/${base}_TechSpec.docx"
+            echo "::endgroup::"
+          done
+
+      - name: Commit generated specs
+        if: steps.changed.outputs.any_changed == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          git config user.name "techspec-bot"
+          git config user.email "techspec-bot@users.noreply.github.com"
+          git add docs/tech-specs
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "docs: auto-generate technical spec(s) [skip ci]"
+            git push origin HEAD:${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          fi
+
+      - name: Upload as workflow artifact (fallback / verification)
+        if: steps.changed.outputs.any_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tech-specs
+          path: docs/tech-specs/*.docx
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.changed.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isFork = context.payload.pull_request.head.repo.full_name !== context.repo.owner + '/' + context.repo.repo;
+            const body = isFork
+              ? '📄 Technical spec(s) were generated for this PR, but could not be committed back automatically because it comes from a fork (GitHub Actions cannot push to fork branches). Download them from the **tech-specs** artifact on this workflow run.'
+              : '📄 Technical spec(s) generated and committed to `docs/tech-specs/`.';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });

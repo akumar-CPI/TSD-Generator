@@ -1,0 +1,20 @@
+{
+  "name": "iflow-techspec-generator",
+  "version": "1.0.0",
+  "description": "CLI: generates a Word technical specification from an SAP Integration Suite iFlow export. No external API calls — everything is derived from the parsed iFlow.",
+  "private": true,
+  "type": "commonjs",
+  "main": "generate.js",
+  "scripts": {
+    "generate": "node generate.js"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.6",
+    "canvas": "^2.11.2",
+    "docx": "^9.6.1",
+    "jszip": "^3.10.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
